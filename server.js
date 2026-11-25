@@ -1,46 +1,27 @@
-import express from "express";
-import cors from "cors";
-import dotenv from "dotenv";
-import rateLimit from "express-rate-limit";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-
-dotenv.config();
-const app = express();
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-app.use(cors());
-app.use(express.json({limit:"1mb"}));
-app.use(rateLimit({windowMs:60_000,limit:30,standardHeaders:true,legacyHeaders:false}));
-app.use(express.static(path.join(__dirname,"public")));
-
-app.get("/health",(_req,res)=>res.json({ok:true,app:"NovaAI"}));
-
-function getProvider(name) {
-  if(name==="cometapi") {
-    if(!process.env.COMETAPI_API_KEY || !process.env.COMETAPI_MODEL) throw new Error("CometAPI açarı/modeli Render Environment bölməsində qurulmayıb.");
-    return {url:"https://api.cometapi.com/v1/chat/completions",key:process.env.COMETAPI_API_KEY,model:process.env.COMETAPI_MODEL};
+require("dotenv").config();
+const express=require("express"),path=require("path"),app=express();
+app.use(express.json({limit:"1mb"}));app.use(express.static(path.join(__dirname,"public")));
+app.get("/health",(_,r)=>r.json({ok:true,app:"NovaAI"}));
+async function chat(req,res){
+ try{
+  const {provider="groq",messages=[]}=req.body||{};
+  if(!Array.isArray(messages)||!messages.length)return res.status(400).json({error:"Mesaj yoxdur."});
+  let answer,key;
+  if(provider==="gemini"){
+   key=process.env.GEMINI_API_KEY;if(!key)throw Error("GEMINI_API_KEY Render Environment-də əlavə edilməyib.");
+   const model=process.env.GEMINI_MODEL||"gemini-2.5-flash",system=messages.find(x=>x.role==="system")?.content;
+   const contents=messages.filter(x=>x.role!=="system").slice(-20).map(x=>({role:x.role==="assistant"?"model":"user",parts:[{text:String(x.content||"") }]}));
+   const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({...system?{systemInstruction:{parts:[{text:system}]}}:{},contents})});
+   const d=await r.json();if(!r.ok)throw Error(d.error?.message||"Gemini xətası");answer=d.candidates?.[0]?.content?.parts?.map(p=>p.text||"").join("");
+  }else{
+   key=provider==="cometapi"?process.env.COMETAPI_KEY:process.env.GROQ_API_KEY;
+   if(!key)throw Error((provider==="cometapi"?"COMETAPI_KEY":"GROQ_API_KEY")+" Render Environment-də əlavə edilməyib.");
+   const url=provider==="cometapi"?"https://api.cometapi.com/v1/chat/completions":"https://api.groq.com/openai/v1/chat/completions";
+   const model=provider==="cometapi"?(process.env.COMETAPI_MODEL||"llama-3.3-70b-versatile"):(process.env.GROQ_MODEL||"llama-3.3-70b-versatile");
+   const r=await fetch(url,{method:"POST",headers:{Authorization:`Bearer ${key}`,"Content-Type":"application/json"},body:JSON.stringify({model,messages:messages.slice(-20),temperature:.7})});
+   const d=await r.json();if(!r.ok)throw Error(d.error?.message||"AI provider xətası");answer=d.choices?.[0]?.message?.content;
   }
-  if(!process.env.GROQ_API_KEY || !process.env.GROQ_MODEL) throw new Error("Groq açarı/modeli Render Environment bölməsində qurulmayıb.");
-  return {url:"https://api.groq.com/openai/v1/chat/completions",key:process.env.GROQ_API_KEY,model:process.env.GROQ_MODEL};
+  res.json({answer:answer||"Cavab alınmadı."});
+ }catch(e){res.status(500).json({error:e.message||"Server xətası"});}
 }
-
-app.post("/api/chat",async(req,res)=>{
- try {
-  const {messages,provider=process.env.DEFAULT_PROVIDER||"groq",mode="chat"}=req.body||{};
-  if(!Array.isArray(messages)||messages.length<1||messages.length>40) return res.status(400).json({error:"Mesaj tarixçəsi düzgün deyil."});
-  if(!["groq","cometapi"].includes(provider)) return res.status(400).json({error:"AI provayderi düzgün deyil."});
-  const clean=messages.map(m=>({role:m.role==="assistant"?"assistant":"user",content:String(m.content||"").slice(0,12000)}));
-  const system=mode==="code"
-   ?"You are NovaAI Code Assistant. Write clear, safe code and explain it. Reply in the user's language."
-   :"You are NovaAI, a helpful general-purpose assistant. Reply in the user's language. Be accurate and say when uncertain.";
-  const cfg=getProvider(provider);
-  const upstream=await fetch(cfg.url,{method:"POST",headers:{Authorization:`Bearer ${cfg.key}`,"Content-Type":"application/json"},body:JSON.stringify({model:cfg.model,messages:[{role:"system",content:system},...clean],temperature:.7,max_tokens:1400})});
-  const data=await upstream.json().catch(()=>({}));
-  if(!upstream.ok) return res.status(upstream.status).json({error:data?.error?.message||data?.message||"AI provayder xətası"});
-  res.json({reply:data?.choices?.[0]?.message?.content||"Cavab boş gəldi.",provider,model:data?.model||cfg.model});
- } catch(e) { res.status(500).json({error:e.message||"Server xətası"}); }
-});
-
-app.get("*",(req,res)=>res.sendFile(path.join(__dirname,"public","index.html")));
-const PORT=Number(process.env.PORT||10000);
-app.listen(PORT,"0.0.0.0",()=>console.log(`NovaAI web listening on ${PORT}`));
+app.post("/api/chat",chat);app.listen(process.env.PORT||3000,()=>console.log("NovaAI started"));
