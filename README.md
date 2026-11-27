@@ -1,47 +1,22 @@
-# NovaAI Website — Complete Starter
+# Nova AI (Render versiyası)
 
-## Fayl quruluşu
-```
-server.js
-package.json
-render.yaml
-.env.example
-public/
-  index.html
-  assets/
-    novaai-logo.png
-```
-**Vacib:** GitHub repository-nin kökündə `server.js` və `package.json` görünməlidir. ZIP-in özünü deyil, ZIP-i açdıqdan sonra içindəki fayl və `public` qovluğunu repository-yə yüklə.
+Sayt və server eyni yerdə işləyir. `public/` qovluğu lazım deyil: bütün fayllar repo-nun ən üst səviyyəsində durur.
 
-## Render ayarları
-- Runtime: Node
-- Root Directory: boş saxla (fayllar repository kökündədirsə)
-- Build Command: `npm install`
-- Start Command: `npm start`
-- Health Check Path: `/health`
+## Render-ə yükləmək
 
-Ana səhifə üçün `/` marşrutu ayrıca qurulub. `/health` JSON status qaytarır.
+1. Render-in qoşulduğu GitHub repo-da köhnə faylları bu ZIP-dəki fayllarla əvəz et: `server.js`, `package.json`, `index.html`, `style.css`, `app.js`, `logo.png`, `logo-dark.png`.
+2. Render → Settings: Build Command `npm install`, Start Command `npm start` (və ya `node server.js`).
+3. Environment bölməsində bu açarlar olmalıdır: `GROQ_API_KEY`, `GEMINI_API_KEY`, `COMETAPI_API_KEY`.
+4. Deploy bitəndə Render ünvanını aç. Sayt açılır. ⚙ Ayarlarda "Server ünvanı" boş qala bilər.
 
-## API açarları
-Render → Service → Environment:
-- `GROQ_API_KEY`
-- `GEMINI_API_KEY`
-- `COMETAPI_KEY`
+## İstəyə bağlı dəyişənlər
 
-İstifadə etmədiyin provayderin açarını boş saxlaya bilərsən. Açarları GitHub-a və `public` qovluğuna qoyma. Environment dəyişəndən sonra redeploy et.
+- `GROQ_MODEL`, `GEMINI_MODEL`, `COMET_MODEL`, `IMAGE_MODEL`: model adları köhnələrsə bunlarla dəyiş.
+- `GOOGLE_TTS_API_KEY`: səs üçün ayrı Google Cloud açarı. Yoxdursa `GEMINI_API_KEY` yoxlanır. Səs işləməsə sayt brauzer səsinə keçir.
+- `ALLOWED_ORIGIN`: sayt başqa ünvanda (məs. GitHub Pages) olsa, onun ünvanı.
 
-## Hazır olanlar
-- Təqdim etdiyin NovaAI loqosu (şəffaf fonlu versiya)
-- Responsive desktop və mobil veb dizayn
-- AI chat backend: Groq, Gemini, CometAPI
-- Kod köməkçisi rejimi
-- Yeni söhbət, brauzerdə lokal söhbət tarixçəsi
-- Şəkil/video studiyası üçün interfeys
-- Profil və parametrlər üçün ilkin interfeys
-- `/` ana səhifə və `/health` yoxlaması
+## Qeydlər
 
-## Hələ inteqrasiya tələb edənlər
-Şəkil və video generasiyası, real istifadəçi hesabları, cihazlararası sinxron mesajlaşma, serverdə saxlanan tarixçə, fayl yükləmə və Premium ödənişləri üçün ayrıca API/xidmət, verilənlər bazası və təhlükəsizlik qurulmalıdır. Bu ZIP bunları hazır işləyir kimi təqdim etmir.
-
-## Lokal başlatma
-Node.js 18+ → `npm install` → `.env.example` faylını `.env` kimi kopyala və API açarlarını daxil et → `npm start` → `http://localhost:3000`.
+- Pulsuz Render planı yatır: ilk sorğu 30–60 saniyə çəkə bilər.
+- Açarları heç vaxt repo-ya yazma.
+- Söhbətlər yalnız brauzerdə saxlanır.
