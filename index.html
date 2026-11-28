@@ -18,13 +18,15 @@
   <section id="msgs"></section>
   <div id="st"></div>
   <div id="bar">
-    <button id="mic">🎤</button>
+    <button id="mic">🎤</button><button id="vc">🎧</button><button id="cam">📷</button>
     <button id="img">🖼</button>
-    <button id="vid" disabled>🎬</button>
+    <button id="vid">🎬</button>
     <textarea id="in" rows="1"></textarea>
     <button id="go">➤</button>
   </div>
 </main>
+<div id="vo" class="ov" hidden><div id="orb"></div><div id="vt"></div><button id="vx">✕</button></div>
+<div id="co" class="ov" hidden><video id="cv" autoplay playsinline muted></video><div id="ct"></div><div class="cb"><button id="cd">👁</button><button id="cm">🎤</button><button id="cx">✕</button></div></div>
 <dialog id="dlg">
   <label id="l-theme"></label>
   <select id="s-theme"><option value="auto"></option><option value="light"></option><option value="dark"></option></select>

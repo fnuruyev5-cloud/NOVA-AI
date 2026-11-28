@@ -1,22 +1,24 @@
-# Nova AI (Render versiyası)
+# Nova AI v2 (Render)
 
-Sayt və server eyni yerdə işləyir. `public/` qovluğu lazım deyil: bütün fayllar repo-nun ən üst səviyyəsində durur.
+Bütün fayllar repo-nun ən üst səviyyəsində durur (`public/` qovluğu yoxdur). Köhnə faylları bunlarla əvəz et: `server.js`, `package.json`, `index.html`, `style.css`, `app.js`, `logo.png`, `logo-dark.png`.
 
-## Render-ə yükləmək
+## Environment
 
-1. Render-in qoşulduğu GitHub repo-da köhnə faylları bu ZIP-dəki fayllarla əvəz et: `server.js`, `package.json`, `index.html`, `style.css`, `app.js`, `logo.png`, `logo-dark.png`.
-2. Render → Settings: Build Command `npm install`, Start Command `npm start` (və ya `node server.js`).
-3. Environment bölməsində bu açarlar olmalıdır: `GROQ_API_KEY`, `GEMINI_API_KEY`, `COMETAPI_API_KEY`.
-4. Deploy bitəndə Render ünvanını aç. Sayt açılır. ⚙ Ayarlarda "Server ünvanı" boş qala bilər.
+- `GROQ_API_KEY` (söhbət, səs tanıma, görüntü ehtiyatı)
+- `COMETAPI_KEY` (və ya `COMETAPI_API_KEY`): söhbət, şəkil, görüntü, video
+- `GEMINI_API_KEY`: yalnız söhbətdə Gemini seçilsə
 
-## İstəyə bağlı dəyişənlər
+İstəyə bağlı model adları: `GROQ_MODEL` (openai/gpt-oss-120b), `COMET_MODEL` (claude-haiku-5-5), `IMAGE_MODEL` (gpt-image-2), `VIDEO_MODEL` (wan3.0-prime), `COMETAPI_VISION_MODEL`, `GROQ_STT_MODEL`, `GEMINI_MODEL`.
 
-- `GROQ_MODEL`, `GEMINI_MODEL`, `COMET_MODEL`, `IMAGE_MODEL`: model adları köhnələrsə bunlarla dəyiş.
-- `GOOGLE_TTS_API_KEY`: səs üçün ayrı Google Cloud açarı. Yoxdursa `GEMINI_API_KEY` yoxlanır. Səs işləməsə sayt brauzer səsinə keçir.
-- `ALLOWED_ORIGIN`: sayt başqa ünvanda (məs. GitHub Pages) olsa, onun ünvanı.
+## Xüsusiyyətlər
 
-## Qeydlər
+- 🎧 Səsli söhbət: danış, cavabı eşit, avtomatik davam edir. Dil avtomatik tanınır.
+- 📷 Kamera: obyektləri göstər, 👁 təsvir et, 🎤 səslə soruş.
+- 🖼 Şəkil, 🎬 video (5 saniyə), 🎤 səslə mesaj.
+- Səs: Edge neyral səsləri. Xəta olsa brauzer səsinə keçir.
+- Mikrofon və kamera icazə istəyir.
 
-- Pulsuz Render planı yatır: ilk sorğu 30–60 saniyə çəkə bilər.
-- Açarları heç vaxt repo-ya yazma.
-- Söhbətlər yalnız brauzerdə saxlanır.
+## v3
+
+- Səs: `TTS_MODEL` (gpt-4o-mini-tts), `TTS_VOICE` (coral; digər: alloy, ash, ballad, echo, sage, shimmer, verse). `TTS_ENGINE=edge` yazsan köhnə Edge səsi işləyir.
+- 🖼 Şəkil düzəltmə: şəklin altında "Düzəlt" düyməsinə bas, nəyi dəyişmək istədiyini yaz, 🖼 düyməsinə bas. Şəkil `/image-edit` ilə həqiqətən redaktə olunur.

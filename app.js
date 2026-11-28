@@ -1,3 +1,4 @@
+let fixSrc='';
 const $=s=>document.querySelector(s),esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const K='new,ph,set,theme,auto,day,night,lang,prov,srv,warn,copy,prev,dl,fix,err,vid,fb'.split(',');
 const L={
@@ -26,7 +27,7 @@ function md(s){return s.split('```').map((p,i)=>{
 
 function draw(){const c=cur();labels();
  $('#list').innerHTML=S.chats.map(x=>`<li class="${x.id===S.cur?'on':''}" data-id="${x.id}"><span>${esc(x.title||t('new'))}</span><button data-del="${x.id}">×</button></li>`).join('');
- $('#msgs').innerHTML=c.msgs.length?c.msgs.map((m,i)=>`<div class="m ${m.role}">${m.img?`<img class="gi" src="${esc(m.img)}" alt=""><div class="acts"><a href="${esc(m.img)}" download="nova.png">${t('dl')}</a><button data-a="fix">${t('fix')}</button></div>`:md(m.content)}${m.role==='assistant'&&!m.img?`<div class="acts"><button data-a="say" data-i="${i}">🔊</button></div>`:''}</div>`).join(''):'<div class="empty"><img class="lg" alt=""><h2>Nova AI</h2></div>';
+ $('#msgs').innerHTML=c.msgs.length?c.msgs.map((m,i)=>`<div class="m ${m.role}">${m.img?`${m.vid?`<video class="gi" src="${esc(m.img)}" controls playsinline></video>`:`<img class="gi" src="${esc(m.img)}" alt="">`}<div class="acts"><a href="${esc(m.img)}" download="nova.png">${t('dl')}</a><button data-a="fix">${t('fix')}</button></div>`:md(m.content)}${m.role==='assistant'&&!m.img?`<div class="acts"><button data-a="say" data-i="${i}">🔊</button></div>`:''}</div>`).join(''):'<div class="empty"><img class="lg" alt=""><h2>Nova AI</h2></div>';
  theme();$('#msgs').scrollTop=1e9}
 
 async function post(p,b){
@@ -35,14 +36,10 @@ async function post(p,b){
 
 async function send(txt,mode,speak){const c=cur();c.msgs.push({role:'user',content:txt});if(!c.title)c.title=txt.slice(0,30);save();draw();$('#st').textContent='…';
  try{
-  if(mode==='img'){const r=await post('/image',{prompt:txt,history:c.msgs.slice(-6).map(({role,content})=>({role,content}))});c.msgs.push({role:'assistant',content:'',img:r.image||r.url})}
+  if(mode==='img'){const r=await post(fixSrc?'/image-edit':'/image',{image:fixSrc,prompt:txt,history:c.msgs.slice(-6).map(({role,content})=>({role,content}))});c.msgs.push({role:'assistant',content:'',img:r.image||r.url});fixSrc=''}
   else{const r=await post('/chat',{provider:S.prov,lang:S.lang,messages:c.msgs.map(({role,content})=>({role,content:content||'[image]'}))});c.msgs.push({role:'assistant',content:r.text})}
  }catch(e){$('#st').textContent=t('err')+e.message;return}
  $('#st').textContent='';save();draw();const l=c.msgs[c.msgs.length-1];if(speak&&l.content)say(l.content)}
-
-async function say(x){x=x.replace(/```[\s\S]*?```/g,'');
- try{new Audio(URL.createObjectURL(await post('/tts',{text:x,lang:S.lang}))).play()}
- catch(e){$('#st').textContent=t('fb');const u=new SpeechSynthesisUtterance(x);u.lang=RL[S.lang];speechSynthesis.cancel();speechSynthesis.speak(u)}}
 
 function go(m){const v=inp.value.trim();if(v){inp.value='';send(v,m)}}
 $('#go').onclick=()=>go();$('#img').onclick=()=>go('img');
@@ -55,10 +52,69 @@ $('#list').onclick=e=>{const d=e.target.dataset.del;
  if(d){S.chats=S.chats.filter(c=>c.id!=d);if(!S.chats.length)return newChat();if(S.cur==d)S.cur=S.chats[0].id;save();return draw()}
  const li=e.target.closest('li');if(li){S.cur=+li.dataset.id;save();draw();$('#side').classList.remove('open')}};
 $('#msgs').onclick=e=>{const b=e.target.closest('button');if(!b)return;const a=b.dataset.a,box=b.closest('.code');
- if(a==='fix'){inp.value=t('fix')+': ';inp.focus()}
+ if(a==='fix'){fixSrc=b.closest('.m').querySelector('.gi').getAttribute('src');inp.value=t('fix')+': ';inp.focus()}
  if(a==='say')say(cur().msgs[b.dataset.i].content);
  if(a==='copy')navigator.clipboard.writeText(box.querySelector('code').textContent);
  if(a==='prev'){let f=box.querySelector('iframe');if(f)f.remove();else{f=document.createElement('iframe');f.sandbox='allow-scripts';f.srcdoc=box.querySelector('code').textContent;box.append(f)}}};
 
 [['theme','theme'],['lang','lang'],['prov','prov'],['srv','server']].forEach(([id,k])=>{const el=$('#s-'+id);el.value=S[k];el.onchange=()=>{S[k]=el.value.trim();save();draw()}});
 if(!S.chats.length)newChat();else{if(!cur())S.cur=S.chats[0].id;draw()}
+
+/* v2: natural voice, voice chat, camera, video */
+async function say(x){x=x.replace(/```[\s\S]*?```/g,'');
+ return new Promise(async ok=>{try{const a=new Audio(URL.createObjectURL(await post('/tts',{text:x})));a.onended=ok;a.onerror=ok;await a.play()}
+ catch(e){$('#st').textContent=t('fb');const u=new SpeechSynthesisUtterance(x);u.lang=RL[S.lang];u.onend=ok;speechSynthesis.cancel();speechSynthesis.speak(u)}})}
+
+async function listen(max=15000){
+ const st=await navigator.mediaDevices.getUserMedia({audio:true}),ac=new AudioContext(),an=ac.createAnalyser();
+ ac.createMediaStreamSource(st).connect(an);
+ const buf=new Uint8Array(an.fftSize),rec=new MediaRecorder(st),ch=[];
+ rec.ondataavailable=e=>ch.push(e.data);rec.start();
+ let spoke=0,quiet=0;const t0=Date.now();
+ await new Promise(ok=>{const tk=setInterval(()=>{an.getByteTimeDomainData(buf);
+  const v=Math.max(...buf.map(x=>Math.abs(x-128)));
+  if(v>12){spoke=1;quiet=0}else if(spoke)quiet+=100;
+  if((spoke&&quiet>1200)||Date.now()-t0>max||(!spoke&&Date.now()-t0>7000)||!listen.on){clearInterval(tk);ok()}},100)});
+ const done=new Promise(r=>rec.onstop=r);rec.stop();await done;st.getTracks().forEach(x=>x.stop());ac.close();
+ if(!spoke||!listen.on)return'';
+ const f=new FormData();f.append('audio',new Blob(ch,{type:'audio/webm'}),'a.webm');
+ const r=await fetch((S.server||'').replace(/\/$/,'')+'/transcribe',{method:'POST',body:f});
+ if(!r.ok)throw Error(r.status+' '+(await r.text().catch(()=>'')).slice(0,120));
+ return(await r.json()).text||''}
+
+const mic=$('#mic');
+mic.onclick=async()=>{if(mic.classList.contains('active')){listen.on=0;return}
+ mic.classList.add('active');listen.on=1;
+ try{const q=await listen();if(q)send(q,0,true)}catch(e){$('#st').textContent=t('err')+e.message}
+ mic.classList.remove('active')};
+
+async function voiceChat(){const o=$('#vo');if(!o.hidden)return;o.hidden=false;listen.on=1;
+ while(listen.on){try{
+  o.dataset.s='listen';$('#vt').textContent='…';
+  const q=await listen();if(!listen.on)break;if(!q)continue;
+  o.dataset.s='think';$('#vt').textContent=q;
+  const c=cur();c.msgs.push({role:'user',content:q});if(!c.title)c.title=q.slice(0,30);save();draw();
+  const r=await post('/chat',{provider:S.prov,messages:c.msgs.map(({role,content})=>({role,content:content||'[image]'}))});
+  c.msgs.push({role:'assistant',content:r.text});save();draw();
+  o.dataset.s='talk';await say(r.text)
+ }catch(e){if(e.name==='NotAllowedError')break;$('#vt').textContent=t('err')+e.message;await new Promise(r=>setTimeout(r,2500))}}
+ o.hidden=true}
+$('#vc').onclick=voiceChat;$('#vx').onclick=()=>{listen.on=0;speechSynthesis.cancel()};
+
+let cs;
+$('#cam').onclick=async()=>{try{cs=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});$('#cv').srcObject=cs;$('#ct').textContent='';$('#co').hidden=false}catch(e){$('#st').textContent=t('err')+e.message}};
+function shot(){const v=$('#cv'),c=document.createElement('canvas'),k=Math.min(1,768/v.videoWidth);c.width=v.videoWidth*k;c.height=v.videoHeight*k;c.getContext('2d').drawImage(v,0,0,c.width,c.height);return c.toDataURL('image/jpeg',.7)}
+async function see(q){const o=$('#ct');o.textContent='…';try{const r=await post('/vision',{image:shot(),prompt:q});o.textContent=r.text;await say(r.text)}catch(e){o.textContent=t('err')+e.message}}
+$('#cd').onclick=()=>see('Describe what you see and name the main objects. Answer in language code: '+S.lang);
+$('#cm').onclick=async()=>{listen.on=1;$('#ct').textContent='…';try{const q=await listen();if(q)await see(q+'\n(Answer in the same language as this question.)');else $('#ct').textContent=''}catch(e){$('#ct').textContent=t('err')+e.message}};
+$('#cx').onclick=()=>{listen.on=0;cs&&cs.getTracks().forEach(x=>x.stop());$('#co').hidden=true;speechSynthesis.cancel()};
+
+$('#vid').onclick=async()=>{const p=inp.value.trim();if(!p)return;inp.value='';const c=cur();
+ c.msgs.push({role:'user',content:p});if(!c.title)c.title=p.slice(0,30);draw();$('#st').textContent='🎬 …';
+ try{const j=await post('/video',{prompt:p,seconds:5});
+  for(let i=0;i<60;i++){await new Promise(r=>setTimeout(r,5000));
+   const s=await(await fetch((S.server||'').replace(/\/$/,'')+'/video/'+j.id)).json();
+   if(s.status==='completed'&&s.videoUrl){c.msgs.push({role:'assistant',content:'',img:s.videoUrl,vid:1});break}
+   if(s.status==='failed')throw Error(s.error||'video')}
+  $('#st').textContent=''}catch(e){$('#st').textContent=t('err')+e.message}
+ save();draw()};
