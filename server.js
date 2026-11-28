@@ -18,7 +18,8 @@ const send = f => (q, r) => r.sendFile(path.join(D, f));
 app.get('/', send('index.html'));
 ['index.html', 'style.css', 'app.js', 'logo.png', 'logo-dark.png'].forEach(f => app.get('/' + f, send(f)));
 
-const SYS = 'You are Nova AI, a simple, helpful assistant. Always reply in the language the user writes or speaks in. Keep spoken-style answers short and natural.';
+const SYS = "Your name is Nova AI. You were created by Fərid (F2 Fərid). Always reply in the language the user writes or speaks in. When asked who created you or who you are, answer in that language with a short, warm explanation: you are Nova AI, a smart multilingual assistant created by Fərid; you can chat, write code, create and edit images, make videos, see through the camera and speak naturally. Never present yourself as ChatGPT, Gemini or any other brand's assistant, and never claim to be human. Be clear, friendly and honest; do not invent facts.";
+const VOICE = ' This is a spoken conversation: reply in 1-3 short, clear sentences, no markdown, no lists, no emojis, and avoid abbreviations.';
 const bad = (r, e) => { console.error(e); r.status(500).json({ error: String(e.message || e) }); };
 const txt = j => { const c = j.choices?.[0]?.message?.content; return (Array.isArray(c) ? c.map(x => x.text || '').join('') : c || '').trim(); };
 async function J(url, key, body) {
@@ -30,12 +31,12 @@ async function J(url, key, body) {
 
 app.post('/chat', async (q, r) => {
   try {
-    const m = (q.body.messages || []).slice(-30), p = q.body.provider, sys = { role: 'system', content: SYS };
+    const m = (q.body.messages || []).slice(-30), p = q.body.provider, sys = { role: 'system', content: SYS + (q.body.voice ? VOICE : '') };
     let text;
     if (p === 'gemini') {
       const x = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${E.GEMINI_MODEL || 'gemini-2.5-flash'}:generateContent`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': E.GEMINI_API_KEY },
-        body: JSON.stringify({ systemInstruction: { parts: [{ text: SYS }] }, contents: m.map(a => ({ role: a.role === 'assistant' ? 'model' : 'user', parts: [{ text: a.content }] })) })
+        body: JSON.stringify({ systemInstruction: { parts: [{ text: sys.content }] }, contents: m.map(a => ({ role: a.role === 'assistant' ? 'model' : 'user', parts: [{ text: a.content }] })) })
       });
       const j = await x.json();
       if (!x.ok) throw Error(j.error?.message || x.status);
@@ -82,14 +83,24 @@ app.post('/image-edit', async (q, r) => {
 app.post('/vision', async (q, r) => {
   try {
     const { image, prompt } = q.body;
-    if (!/^data:image\//.test(image || '')) throw Error('Şəkil düzgün deyil');
-    const c = !!COMET;
-    const j = await J((c ? CB : GB) + '/chat/completions', c ? COMET : GROQ, {
-      model: c ? (E.COMETAPI_VISION_MODEL || E.VISION_MODEL || 'deepseek-v4-flash-vision') : (E.GROQ_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct'),
-      max_tokens: 1000,
-      messages: [{ role: 'system', content: SYS }, { role: 'user', content: [{ type: 'text', text: prompt || 'Describe the image.' }, { type: 'image_url', image_url: { url: image } }] }]
-    });
-    r.json({ text: txt(j) });
+    const m = (image || '').match(/^data:(image\/[\w+.-]+);base64,(.*)$/s);
+    if (!m) throw Error('Şəkil düzgün deyil');
+    const ask = (prompt || 'Describe the image.') + '\nAnswer in 2-4 short, clear sentences, no markdown.';
+    const oa = (base, key, model) => J(base + '/chat/completions', key, { model, max_tokens: 800, messages: [{ role: 'system', content: SYS }, { role: 'user', content: [{ type: 'text', text: ask }, { type: 'image_url', image_url: { url: image } }] }] }).then(txt);
+    const gem = async (model, body) => {
+      const x = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': E.GEMINI_API_KEY }, body: JSON.stringify(body) });
+      const j = await x.json();
+      if (!x.ok) throw Error(j.error?.message || x.status);
+      return j;
+    };
+    const tries = [];
+    if (COMET) tries.push(() => oa(CB, COMET, E.COMETAPI_VISION_MODEL || E.VISION_MODEL || 'deepseek-v4-flash-vision'));
+    if (GROQ) tries.push(() => oa(GB, GROQ, E.GROQ_VISION_MODEL || 'meta-llama/llama-4-scout-17b-16e-instruct'));
+    if (E.GEMINI_API_KEY) tries.push(async () => (await gem(E.GEMINI_VISION_MODEL || 'gemini-2.5-flash', { contents: [{ parts: [{ text: ask }, { inline_data: { mime_type: m[1], data: m[2] } }] }] })).candidates[0].content.parts.map(a => a.text || '').join(''));
+    let text = '', err;
+    for (const f of tries) { try { text = (await f()).trim(); if (text) break; } catch (e) { err = e; console.warn('vision try failed:', e.message); } }
+    if (!text) throw err || Error('Görüntü analiz edilmədi');
+    r.json({ text });
   } catch (e) { bad(r, e); }
 });
 
@@ -99,7 +110,7 @@ app.post('/transcribe', up.single('audio'), async (q, r) => {
     if (!q.file) throw Error('Audio yoxdur');
     const g = !!GROQ, f = new FormData();
     f.append('file', new Blob([q.file.buffer], { type: q.file.mimetype || 'audio/webm' }), 'a.webm');
-    f.append('model', g ? (E.GROQ_STT_MODEL || 'whisper-large-v3-turbo') : 'whisper-1');
+    f.append('temperature', '0'); f.append('prompt', 'Salam, necəsən? Merhaba, nasılsın? Hello, how are you? Привет, как дела? Olá, tudo bem?'); f.append('model', g ? (E.GROQ_STT_MODEL || 'whisper-large-v3') : 'whisper-1');
     const x = await fetch((g ? GB : CB) + '/audio/transcriptions', { method: 'POST', headers: { Authorization: 'Bearer ' + (g ? GROQ : COMET) }, body: f });
     const j = await x.json();
     if (!x.ok) throw Error(j.error?.message || x.status);
@@ -117,7 +128,7 @@ app.post('/tts', async (q, r) => {
     const x = await fetch(CB + '/audio/speech', {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + COMET },
       body: JSON.stringify({ model: E.TTS_MODEL || 'gpt-4o-mini-tts', voice: E.TTS_VOICE || 'coral', input: t, response_format: 'mp3',
-        instructions: 'Speak like a warm, relaxed, natural person, in the same language as the text. Natural pace and light emotion. Never robotic.' })
+        instructions: 'Speak like a warm, relaxed, natural person, in the same language as the text. Natural pace and light emotion. Articulate every word clearly. Never robotic.' })
     });
     if (!x.ok) throw Error('speech ' + x.status);
     return r.type('audio/mpeg').send(Buffer.from(await x.arrayBuffer()));

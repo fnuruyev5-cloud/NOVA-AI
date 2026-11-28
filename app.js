@@ -37,11 +37,13 @@ async function post(p,b){
 async function send(txt,mode,speak){const c=cur();c.msgs.push({role:'user',content:txt});if(!c.title)c.title=txt.slice(0,30);save();draw();$('#st').textContent='…';
  try{
   if(mode==='img'){const r=await post(fixSrc?'/image-edit':'/image',{image:fixSrc,prompt:txt,history:c.msgs.slice(-6).map(({role,content})=>({role,content}))});c.msgs.push({role:'assistant',content:'',img:r.image||r.url});fixSrc=''}
-  else{const r=await post('/chat',{provider:S.prov,lang:S.lang,messages:c.msgs.map(({role,content})=>({role,content:content||'[image]'}))});c.msgs.push({role:'assistant',content:r.text})}
+  else{const r=await post('/chat',{provider:S.prov,voice:!!speak,lang:S.lang,messages:c.msgs.map(({role,content})=>({role,content:content||'[image]'}))});c.msgs.push({role:'assistant',content:r.text})}
  }catch(e){$('#st').textContent=t('err')+e.message;return}
  $('#st').textContent='';save();draw();const l=c.msgs[c.msgs.length-1];if(speak&&l.content)say(l.content)}
 
-function go(m){const v=inp.value.trim();if(v){inp.value='';send(v,m)}}
+const HINT={az:'Əvvəl təsviri yaz, sonra düyməyə bas.',tr:'Önce açıklamayı yaz, sonra düğmeye bas.',ru:'Сначала напиши описание, затем нажми кнопку.',en:'Type a description first, then tap the button.',pt:'Escreva primeiro a descrição e toque no botão.'};
+const hint=()=>HINT[S.lang];
+function go(m){const v=inp.value.trim();if(!v){if(m){$('#st').textContent=hint();inp.focus()}return}inp.value='';send(v,m)}
 $('#go').onclick=()=>go();$('#img').onclick=()=>go('img');
 inp.onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!matchMedia('(pointer:coarse)').matches){e.preventDefault();go()}};
 $('#mic').onclick=()=>{const R=window.SpeechRecognition||window.webkitSpeechRecognition;if(!R)return;const r=new R();r.lang=RL[S.lang];r.onresult=e=>send(e.results[0][0].transcript,0,true);r.start()};
@@ -61,20 +63,24 @@ $('#msgs').onclick=e=>{const b=e.target.closest('button');if(!b)return;const a=b
 if(!S.chats.length)newChat();else{if(!cur())S.cur=S.chats[0].id;draw()}
 
 /* v2: natural voice, voice chat, camera, video */
-async function say(x){x=x.replace(/```[\s\S]*?```/g,'');
- return new Promise(async ok=>{try{const a=new Audio(URL.createObjectURL(await post('/tts',{text:x})));a.onended=ok;a.onerror=ok;await a.play()}
- catch(e){$('#st').textContent=t('fb');const u=new SpeechSynthesisUtterance(x);u.lang=RL[S.lang];u.onend=ok;speechSynthesis.cancel();speechSynthesis.speak(u)}})}
+let au,sayDone;
+function stopSay(){try{au&&au.pause()}catch(e){}speechSynthesis.cancel();sayDone&&sayDone()}
+async function say(x){x=x.replace(/```[\s\S]*?```/g,'').replace(/[*_#`>]/g,'');stopSay();
+ return new Promise(async ok=>{let d=0,mx;const fin=()=>{if(!d){d=1;clearTimeout(mx);sayDone=null;ok()}};sayDone=fin;
+  mx=setTimeout(fin,Math.min(90000,x.length*120+5000));
+  try{au=new Audio(URL.createObjectURL(await post('/tts',{text:x})));au.onended=fin;au.onerror=fin;await au.play()}
+  catch(e){$('#st').textContent=t('fb');const u=new SpeechSynthesisUtterance(x);u.lang=RL[S.lang];u.onend=fin;u.onerror=fin;speechSynthesis.speak(u)}})}
 
 async function listen(max=15000){
- const st=await navigator.mediaDevices.getUserMedia({audio:true}),ac=new AudioContext(),an=ac.createAnalyser();
+ const st=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}}),ac=new AudioContext(),an=ac.createAnalyser();
  ac.createMediaStreamSource(st).connect(an);
  const buf=new Uint8Array(an.fftSize),rec=new MediaRecorder(st),ch=[];
  rec.ondataavailable=e=>ch.push(e.data);rec.start();
  let spoke=0,quiet=0;const t0=Date.now();
  await new Promise(ok=>{const tk=setInterval(()=>{an.getByteTimeDomainData(buf);
   const v=Math.max(...buf.map(x=>Math.abs(x-128)));
-  if(v>12){spoke=1;quiet=0}else if(spoke)quiet+=100;
-  if((spoke&&quiet>1200)||Date.now()-t0>max||(!spoke&&Date.now()-t0>7000)||!listen.on){clearInterval(tk);ok()}},100)});
+  if(v>8){spoke=1;quiet=0}else if(spoke)quiet+=100;
+  if((spoke&&quiet>1500)||Date.now()-t0>max||(!spoke&&Date.now()-t0>7000)||!listen.on){clearInterval(tk);ok()}},100)});
  const done=new Promise(r=>rec.onstop=r);rec.stop();await done;st.getTracks().forEach(x=>x.stop());ac.close();
  if(!spoke||!listen.on)return'';
  const f=new FormData();f.append('audio',new Blob(ch,{type:'audio/webm'}),'a.webm');
@@ -94,22 +100,22 @@ async function voiceChat(){const o=$('#vo');if(!o.hidden)return;o.hidden=false;l
   const q=await listen();if(!listen.on)break;if(!q)continue;
   o.dataset.s='think';$('#vt').textContent=q;
   const c=cur();c.msgs.push({role:'user',content:q});if(!c.title)c.title=q.slice(0,30);save();draw();
-  const r=await post('/chat',{provider:S.prov,messages:c.msgs.map(({role,content})=>({role,content:content||'[image]'}))});
+  const r=await post('/chat',{provider:S.prov,voice:true,messages:c.msgs.map(({role,content})=>({role,content:content||'[image]'}))});
   c.msgs.push({role:'assistant',content:r.text});save();draw();
   o.dataset.s='talk';await say(r.text)
  }catch(e){if(e.name==='NotAllowedError')break;$('#vt').textContent=t('err')+e.message;await new Promise(r=>setTimeout(r,2500))}}
  o.hidden=true}
-$('#vc').onclick=voiceChat;$('#vx').onclick=()=>{listen.on=0;speechSynthesis.cancel()};
+$('#vc').onclick=voiceChat;$('#vx').onclick=()=>{listen.on=0;stopSay()};$('#orb').onclick=stopSay;
 
 let cs;
-$('#cam').onclick=async()=>{try{cs=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});$('#cv').srcObject=cs;$('#ct').textContent='';$('#co').hidden=false}catch(e){$('#st').textContent=t('err')+e.message}};
-function shot(){const v=$('#cv'),c=document.createElement('canvas'),k=Math.min(1,768/v.videoWidth);c.width=v.videoWidth*k;c.height=v.videoHeight*k;c.getContext('2d').drawImage(v,0,0,c.width,c.height);return c.toDataURL('image/jpeg',.7)}
+$('#cam').onclick=async()=>{try{cs=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});$('#cv').srcObject=cs;await $('#cv').play().catch(()=>{});$('#ct').textContent='';$('#co').hidden=false}catch(e){$('#st').textContent=t('err')+e.message}};
+function shot(){const v=$('#cv');if(!v.videoWidth)throw Error('camera not ready');const c=document.createElement('canvas'),k=Math.min(1,768/v.videoWidth);c.width=v.videoWidth*k;c.height=v.videoHeight*k;c.getContext('2d').drawImage(v,0,0,c.width,c.height);return c.toDataURL('image/jpeg',.7)}
 async function see(q){const o=$('#ct');o.textContent='…';try{const r=await post('/vision',{image:shot(),prompt:q});o.textContent=r.text;await say(r.text)}catch(e){o.textContent=t('err')+e.message}}
 $('#cd').onclick=()=>see('Describe what you see and name the main objects. Answer in language code: '+S.lang);
 $('#cm').onclick=async()=>{listen.on=1;$('#ct').textContent='…';try{const q=await listen();if(q)await see(q+'\n(Answer in the same language as this question.)');else $('#ct').textContent=''}catch(e){$('#ct').textContent=t('err')+e.message}};
-$('#cx').onclick=()=>{listen.on=0;cs&&cs.getTracks().forEach(x=>x.stop());$('#co').hidden=true;speechSynthesis.cancel()};
+$('#cx').onclick=()=>{listen.on=0;cs&&cs.getTracks().forEach(x=>x.stop());$('#co').hidden=true;stopSay()};
 
-$('#vid').onclick=async()=>{const p=inp.value.trim();if(!p)return;inp.value='';const c=cur();
+$('#vid').onclick=async()=>{const p=inp.value.trim();if(!p){$('#st').textContent=hint();inp.focus();return}inp.value='';const c=cur();
  c.msgs.push({role:'user',content:p});if(!c.title)c.title=p.slice(0,30);draw();$('#st').textContent='🎬 …';
  try{const j=await post('/video',{prompt:p,seconds:5});
   for(let i=0;i<60;i++){await new Promise(r=>setTimeout(r,5000));
