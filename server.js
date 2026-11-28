@@ -31,22 +31,35 @@ async function J(url, key, body) {
 
 app.post('/chat', async (q, r) => {
   try {
-    const m = (q.body.messages || []).slice(-30), p = q.body.provider, sys = { role: 'system', content: SYS + (q.body.voice ? VOICE : '') };
-    let text;
-    if (p === 'gemini') {
-      const x = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${E.GEMINI_MODEL || 'gemini-2.5-flash'}:generateContent`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': E.GEMINI_API_KEY },
-        body: JSON.stringify({ systemInstruction: { parts: [{ text: sys.content }] }, contents: m.map(a => ({ role: a.role === 'assistant' ? 'model' : 'user', parts: [{ text: a.content }] })) })
-      });
-      const j = await x.json();
-      if (!x.ok) throw Error(j.error?.message || x.status);
-      text = j.candidates[0].content.parts.map(a => a.text || '').join('');
-    } else if (p === 'comet') {
-      text = txt(await J(CB + '/chat/completions', COMET, { model: E.COMET_MODEL || E.COMETAPI_MODEL || 'claude-haiku-5-5', messages: [sys, ...m] }));
-    } else {
-      text = txt(await J(GB + '/chat/completions', GROQ, { model: E.GROQ_MODEL || 'openai/gpt-oss-120b', messages: [sys, ...m] }));
+    const m = (q.body.messages || []).slice(-30), sys = { role: 'system', content: SYS + (q.body.voice ? VOICE : '') };
+    const CH = {
+      gemini: async () => {
+        if (!E.GEMINI_API_KEY) throw Error('GEMINI_API_KEY missing');
+        const x = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${E.GEMINI_MODEL || 'gemini-2.5-flash'}:generateContent`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': E.GEMINI_API_KEY },
+          body: JSON.stringify({ systemInstruction: { parts: [{ text: sys.content }] }, contents: m.map(a => ({ role: a.role === 'assistant' ? 'model' : 'user', parts: [{ text: a.content }] })) })
+        });
+        const j = await x.json();
+        if (!x.ok) throw Error(j.error?.message || x.status);
+        return j.candidates[0].content.parts.map(a => a.text || '').join('');
+      },
+      comet: async () => {
+        if (!COMET) throw Error('COMETAPI_KEY missing');
+        return txt(await J(CB + '/chat/completions', COMET, { model: E.COMET_MODEL || E.COMETAPI_MODEL || 'claude-haiku-5-5', messages: [sys, ...m] }));
+      },
+      groq: async () => {
+        if (!GROQ) throw Error('GROQ_API_KEY missing');
+        return txt(await J(GB + '/chat/completions', GROQ, { model: E.GROQ_MODEL || 'openai/gpt-oss-120b', messages: [sys, ...m] }));
+      }
+    };
+    const first = CH[q.body.provider] ? q.body.provider : 'groq';
+    const order = [first, ...['groq', 'comet', 'gemini'].filter(k => k !== first)];
+    let text = '', errs = [];
+    for (const k of order) {
+      try { text = (await CH[k]()).trim(); if (text) break; }
+      catch (e) { errs.push(k + ': ' + e.message); console.warn('chat provider failed:', k, e.message); }
     }
-    if (!text) throw Error('Boş cavab');
+    if (!text) throw Error(errs.join(' | ') || 'Boş cavab');
     r.json({ text });
   } catch (e) { bad(r, e); }
 });
@@ -54,11 +67,7 @@ app.post('/chat', async (q, r) => {
 app.post('/image', async (q, r) => {
   try {
     const h = (q.body.history || []).filter(x => x.role === 'user').map(x => x.content).slice(-3).join('\n') || q.body.prompt;
-    const j = await J(CB + '/images/generations', COMET, { model: E.IMAGE_MODEL || 'gpt-image-2', prompt: h, n: 1, size: '1024x1024' });
-    const i = (Array.isArray(j.data) ? j.data[0] : j.data) || j, b = i.b64_json || i.base64;
-    const image = b ? `data:image/png;base64,${b}` : (i.url || i.image_url);
-    if (!image) throw Error('Şəkil gəlmədi');
-    r.json({ image });
+    r.json({ image: await genImage(h) });
   } catch (e) { bad(r, e); }
 });
 
@@ -178,16 +187,59 @@ async function llm(system, user) {
   if (COMET) { try { return await J(CB + '/chat/completions', COMET, { model: E.COMET_MODEL || E.COMETAPI_MODEL || 'claude-haiku-5-5', messages: m }).then(txt); } catch (e) { if (!GROQ) throw e; } }
   return J(GB + '/chat/completions', GROQ, { model: E.GROQ_MODEL || 'openai/gpt-oss-120b', messages: m }).then(txt);
 }
+const b64url = (buf, type) => `data:${type || 'image/png'};base64,${Buffer.from(buf).toString('base64')}`;
+const IMG = {
+  async comet(p) {
+    if (!COMET) throw Error('COMETAPI_KEY missing');
+    const j = await J(CB + '/images/generations', COMET, { model: E.IMAGE_MODEL || 'gpt-image-2', prompt: p, n: 1, size: '1024x1024' });
+    const i = (Array.isArray(j.data) ? j.data[0] : j.data) || j, b = i.b64_json || i.base64;
+    if (b) return `data:image/png;base64,${b}`;
+    const u = i.url || i.image_url;
+    if (!u) throw Error('The image API returned no image');
+    const g = await fetch(u);
+    if (!g.ok) throw Error('Could not fetch the generated image');
+    return b64url(await g.arrayBuffer(), g.headers.get('content-type'));
+  },
+  async cloudflare(p) {
+    if (!E.CF_ACCOUNT_ID || !E.CF_API_TOKEN) throw Error('CF_ACCOUNT_ID / CF_API_TOKEN missing');
+    const x = await fetch(`https://api.cloudflare.com/client/v4/accounts/${E.CF_ACCOUNT_ID}/ai/run/${E.CF_IMAGE_MODEL || '@cf/black-forest-labs/flux-1-schnell'}`, {
+      method: 'POST', headers: { Authorization: 'Bearer ' + E.CF_API_TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: p.slice(0, 2000) })
+    });
+    const type = x.headers.get('content-type') || '';
+    if (type.startsWith('image/')) return b64url(await x.arrayBuffer(), type);
+    const j = await x.json(), b = j.result?.image || j.image;
+    if (!x.ok || !b) throw Error(j.errors?.[0]?.message || 'Cloudflare ' + x.status);
+    return `data:image/jpeg;base64,${b}`;
+  },
+  async huggingface(p) {
+    if (!E.HF_TOKEN) throw Error('HF_TOKEN missing');
+    const x = await fetch(`https://router.huggingface.co/hf-inference/models/${E.HF_IMAGE_MODEL || 'black-forest-labs/FLUX.1-schnell'}`, {
+      method: 'POST', headers: { Authorization: 'Bearer ' + E.HF_TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ inputs: p.slice(0, 1500) })
+    });
+    const type = x.headers.get('content-type') || '';
+    if (!x.ok || !type.startsWith('image/')) throw Error('HuggingFace ' + x.status + ' ' + (await x.text()).slice(0, 120));
+    return b64url(await x.arrayBuffer(), type);
+  },
+  async pollinations(p) {
+    const u = `https://image.pollinations.ai/prompt/${encodeURIComponent(p.slice(0, 1000))}?width=1024&height=1024&model=${E.POLLINATIONS_MODEL || 'flux'}&nologo=true&private=true&seed=${Math.floor(Math.random() * 1e6)}`;
+    for (let t = 0; t < 2; t++) {
+      const x = await fetch(u, { signal: AbortSignal.timeout(90000) });
+      if (x.status === 429 && !t) { await new Promise(r => setTimeout(r, 16000)); continue; } // anonymous tier is rate limited
+      const type = x.headers.get('content-type') || '';
+      if (!x.ok || !type.startsWith('image/')) throw Error('Pollinations ' + x.status);
+      return b64url(await x.arrayBuffer(), type);
+    }
+  }
+};
 async function genImage(prompt) {
-  if (!COMET) throw Error('Image generation needs COMETAPI_KEY on the server');
-  const j = await J(CB + '/images/generations', COMET, { model: E.IMAGE_MODEL || 'gpt-image-2', prompt, n: 1, size: '1024x1024' });
-  const i = (Array.isArray(j.data) ? j.data[0] : j.data) || j, b = i.b64_json || i.base64;
-  if (b) return `data:image/png;base64,${b}`;
-  const u = i.url || i.image_url;
-  if (!u) throw Error('The image API returned no image');
-  const g = await fetch(u);
-  if (!g.ok) throw Error('Could not fetch the generated image');
-  return `data:${g.headers.get('content-type') || 'image/png'};base64,${Buffer.from(await g.arrayBuffer()).toString('base64')}`;
+  const want = (E.IMAGE_PROVIDER || 'auto').toLowerCase();
+  const order = want === 'auto' ? ['comet', 'cloudflare', 'huggingface', 'pollinations'] : [want];
+  const errs = [];
+  for (const k of order) {
+    try { if (!IMG[k]) throw Error('unknown provider'); return await IMG[k](prompt); }
+    catch (e) { errs.push(k + ': ' + e.message); console.warn('image provider failed:', k, e.message); }
+  }
+  throw Error(errs.join(' | '));
 }
 app.post('/logo', async (q, r) => {
   try {

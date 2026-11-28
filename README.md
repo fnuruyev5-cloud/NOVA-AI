@@ -27,3 +27,13 @@ Bütün fayllar repo-nun ən üst səviyyəsində durur (`public/` qovluğu yoxd
 
 - Header-dəki ✦ düyməsi Logo Studio-nu açır. `POST /logo` söhbət modeli ilə peşəkar prompt yazır, sonra `IMAGE_MODEL` (gpt-image-2) ilə həqiqi şəkil yaradır. Yeni dəyişən lazım deyil, `COMETAPI_KEY` kifayətdir.
 - Saxla: brauzerdə (localStorage), maksimum 20 logo, 768px WebP. Tam keyfiyyət üçün Download düyməsini işlət.
+
+## v6: pulsuz şəkil və ehtiyat sağlayıcılar
+
+- Şəkil (həm 🖼, həm Logo Studio) bu ardıcıllıqla yoxlanır: CometAPI → Cloudflare → Hugging Face → Pollinations. Biri xəta versə növbətisinə keçir.
+- Yalnız bir sağlayıcı istəsən: `IMAGE_PROVIDER` = `comet` | `cloudflare` | `huggingface` | `pollinations`. CometAPI balansı sıfırdırsa `pollinations` yaz, vaxt itirməsin.
+- Cloudflare: `CF_ACCOUNT_ID`, `CF_API_TOKEN` (Workers AI icazəsi ilə). Model: `CF_IMAGE_MODEL`.
+- Hugging Face: `HF_TOKEN`, model: `HF_IMAGE_MODEL`.
+- Pollinations açarsız işləyir (`POLLINATIONS_MODEL`, standart flux).
+- Söhbət də ehtiyatlıdır: seçilən model limitə düşsə Groq → CometAPI → Gemini ardıcıllığı ilə avtomatik keçir.
+- Hələ yalnız CometAPI ilə işləyənlər: video və şəkil redaktəsi (Düzəlt).
