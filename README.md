@@ -22,3 +22,8 @@ Bütün fayllar repo-nun ən üst səviyyəsində durur (`public/` qovluğu yoxd
 
 - Səs: `TTS_MODEL` (gpt-4o-mini-tts), `TTS_VOICE` (coral; digər: alloy, ash, ballad, echo, sage, shimmer, verse). `TTS_ENGINE=edge` yazsan köhnə Edge səsi işləyir.
 - 🖼 Şəkil düzəltmə: şəklin altında "Düzəlt" düyməsinə bas, nəyi dəyişmək istədiyini yaz, 🖼 düyməsinə bas. Şəkil `/image-edit` ilə həqiqətən redaktə olunur.
+
+## v5: Logo Studio
+
+- Header-dəki ✦ düyməsi Logo Studio-nu açır. `POST /logo` söhbət modeli ilə peşəkar prompt yazır, sonra `IMAGE_MODEL` (gpt-image-2) ilə həqiqi şəkil yaradır. Yeni dəyişən lazım deyil, `COMETAPI_KEY` kifayətdir.
+- Saxla: brauzerdə (localStorage), maksimum 20 logo, 768px WebP. Tam keyfiyyət üçün Download düyməsini işlət.

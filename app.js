@@ -124,3 +124,40 @@ $('#vid').onclick=async()=>{const p=inp.value.trim();if(!p){$('#st').textContent
    if(s.status==='failed')throw Error(s.error||'video')}
   $('#st').textContent=''}catch(e){$('#st').textContent=t('err')+e.message}
  save();draw()};
+
+/* v5: Logo Studio */
+const LC=['Esports Gaming','Clan Logo','Company Logo','Minimalist Logo','Mascot Logo','3D Logo'],
+ LS=['Flat vector','Gradient','Neon glow','Metallic chrome','3D render','Line art'],
+ COL=[['Cyan','#00e5ff'],['Purple','#8b5cf6'],['Magenta','#ff2bd6'],['Red','#ff3b3b'],['Gold','#ffc83d'],['Green','#22e08a'],['Blue','#3b82f6'],['White','#ffffff'],['Black','#111111']];
+const lg={c:0,s:0,k:[0,1],last:null};
+let gal=[];try{gal=JSON.parse(localStorage.getItem('nova_logos')||'[]')}catch(e){}
+const gsave=()=>{try{localStorage.setItem('nova_logos',JSON.stringify(gal));return 1}catch(e){return 0}};
+function lgDraw(){
+ $('#lc').innerHTML=LC.map((x,i)=>`<button class="chip${i===lg.c?' on':''}" data-c="${i}">${x}</button>`).join('');
+ $('#ls').innerHTML=LS.map((x,i)=>`<button class="chip${i===lg.s?' on':''}" data-s="${i}">${x}</button>`).join('');
+ $('#lk').innerHTML=COL.map((x,i)=>`<button class="chip sw${lg.k.includes(i)?' on':''}" data-k="${i}" title="${esc(x[0])}" style="--c:${x[1]}"></button>`).join('')+'<label class="cc">+<input type="color" id="lcc"></label>';
+ $('#lgal').innerHTML=gal.map((g,i)=>`<div class="gi2"><img src="${g.src}" data-v="${i}" alt="${esc(g.name)}"><button data-d="${i}">×</button></div>`).join('')||'<span>—</span>'}
+function lgShow(src,p){lg.last={src,p,n:$('#ln').value.trim()};$('#lbox').innerHTML=`<img src="${src}" alt="logo">`;$('#lp').textContent=p||'';['#lre','#ldl','#lsv'].forEach(i=>$(i).disabled=false)}
+async function lgGo(again){
+ const name=$('#ln').value.trim(),st=$('#lst'),b=$('#lgo');
+ if(!name){st.textContent='Enter a name first.';$('#ln').focus();return}
+ if(again&&lg.last?.n!==name)again=false;
+ b.disabled=$('#lre').disabled=true;st.textContent='Designing your logo… this can take up to a minute.';$('#lbox').classList.add('busy');
+ try{const r=await post('/logo',{name,desc:$('#ld').value.trim(),category:LC[lg.c],style:LS[lg.s],colors:lg.k.map(i=>COL[i][0]+' '+COL[i][1]),prompt:again?lg.last.p:undefined});
+  lgShow(r.image,r.prompt);st.textContent=''}
+ catch(e){st.textContent='Error: '+e.message}
+ b.disabled=false;$('#lre').disabled=!lg.last;$('#lbox').classList.remove('busy')}
+$('#lgb').onclick=()=>{lgDraw();$('#lg').hidden=false};
+$('#lgx').onclick=()=>$('#lg').hidden=true;
+$('#lgo').onclick=()=>lgGo(0);$('#lre').onclick=()=>lgGo(1);
+$('#lc').onclick=e=>{const i=e.target.dataset.c;if(i!=null){lg.c=+i;lgDraw()}};
+$('#ls').onclick=e=>{const i=e.target.dataset.s;if(i!=null){lg.s=+i;lgDraw()}};
+$('#lk').onclick=e=>{const b=e.target.closest('[data-k]');if(!b)return;const i=+b.dataset.k;lg.k=lg.k.includes(i)?lg.k.filter(x=>x!==i):[...lg.k,i].slice(-3);lgDraw()};
+$('#lk').onchange=e=>{if(e.target.id==='lcc'){COL.push([e.target.value,e.target.value]);lg.k=[...lg.k,COL.length-1].slice(-3);lgDraw()}};
+$('#ldl').onclick=()=>{const a=document.createElement('a');a.href=lg.last.src;a.download=($('#ln').value.trim()||'logo').replace(/[^\w-]+/g,'_')+'_nova-logo.'+(lg.last.src.match(/^data:image\/(\w+)/)||[0,'png'])[1];document.body.append(a);a.click();a.remove()};
+$('#lsv').onclick=async()=>{const i=new Image();i.src=lg.last.src;await i.decode();const c=document.createElement('canvas'),k=Math.min(1,768/i.width);c.width=i.width*k;c.height=i.height*k;c.getContext('2d').drawImage(i,0,0,c.width,c.height);
+ gal.unshift({name:$('#ln').value.trim()||'Logo',src:c.toDataURL('image/webp',.9),p:lg.last.p});gal=gal.slice(0,20);
+ if(gsave())$('#lst').textContent='Saved to your gallery.';else{gal.shift();$('#lst').textContent='Storage is full: delete a saved logo first.'}lgDraw()};
+$('#lgal').onclick=e=>{const v=e.target.dataset.v,d=e.target.dataset.d;
+ if(v!=null){$('#ln').value=gal[v].name;lgShow(gal[v].src,gal[v].p)}
+ if(d!=null){gal.splice(d,1);gsave();lgDraw()}};

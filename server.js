@@ -163,4 +163,43 @@ app.get('/video/:id', async (q, r) => {
   } catch (e) { bad(r, e); }
 });
 
+// ---- Logo Studio: description -> professional prompt -> real image API ----
+const CAT = {
+  'Esports Gaming': 'aggressive esports emblem, bold angular typography, dynamic shield or mascot silhouette, high contrast, sharp edges',
+  'Clan Logo': 'heraldic clan crest or badge, symmetrical emblem, strong iconic silhouette, shield, banner or weapon elements',
+  'Company Logo': 'refined corporate mark, balanced geometric symbol with a clean wordmark, trustworthy, modern, scalable',
+  'Minimalist Logo': 'minimalist mark, very few shapes, clever negative space, generous whitespace, limited palette',
+  'Mascot Logo': 'expressive mascot character as the hero of the logo, bold clean outlines, strong personality, sports-team style',
+  '3D Logo': 'premium 3D rendered logo, beveled depth, realistic lighting and reflections, glossy or metallic materials'
+};
+const SYSLOGO = 'You are a senior brand identity designer and image-prompt engineer. Turn the brief into ONE detailed prompt for an image generation model that creates a professional logo. Output only the prompt, in English, under 170 words. Rules: a single centered logo on a clean plain background that suits the palette (dark for neon or esports styles, white for minimalist or corporate); vector-quality shapes, strong silhouette, balanced composition, readable at small sizes; no mockups, no extra objects, no watermark. The brand name must appear exactly once, spelled exactly as given, in a custom typeface that matches the style. Follow the category conventions, use the given colors precisely and respect the visual style and the user description.';
+async function llm(system, user) {
+  const m = [{ role: 'system', content: system }, { role: 'user', content: user }];
+  if (COMET) { try { return await J(CB + '/chat/completions', COMET, { model: E.COMET_MODEL || E.COMETAPI_MODEL || 'claude-haiku-5-5', messages: m }).then(txt); } catch (e) { if (!GROQ) throw e; } }
+  return J(GB + '/chat/completions', GROQ, { model: E.GROQ_MODEL || 'openai/gpt-oss-120b', messages: m }).then(txt);
+}
+async function genImage(prompt) {
+  if (!COMET) throw Error('Image generation needs COMETAPI_KEY on the server');
+  const j = await J(CB + '/images/generations', COMET, { model: E.IMAGE_MODEL || 'gpt-image-2', prompt, n: 1, size: '1024x1024' });
+  const i = (Array.isArray(j.data) ? j.data[0] : j.data) || j, b = i.b64_json || i.base64;
+  if (b) return `data:image/png;base64,${b}`;
+  const u = i.url || i.image_url;
+  if (!u) throw Error('The image API returned no image');
+  const g = await fetch(u);
+  if (!g.ok) throw Error('Could not fetch the generated image');
+  return `data:${g.headers.get('content-type') || 'image/png'};base64,${Buffer.from(await g.arrayBuffer()).toString('base64')}`;
+}
+app.post('/logo', async (q, r) => {
+  try {
+    const { name, desc, category, style, colors, prompt: keep } = q.body;
+    const n = String(name || '').trim().slice(0, 60);
+    if (!n) throw Error('Name is required');
+    if (!CAT[category]) throw Error('Unknown category');
+    let prompt = typeof keep === 'string' && keep.length > 20 ? keep.slice(0, 2000) : '';
+    if (!prompt) prompt = (await llm(SYSLOGO, `Brand name: "${n}"\nCategory: ${category} (${CAT[category]})\nVisual style: ${String(style || '').slice(0, 40)}\nColors: ${(Array.isArray(colors) ? colors : []).slice(0, 4).map(c => String(c).slice(0, 30)).join(', ') || 'designer choice'}\nUser description: ${String(desc || '').slice(0, 500) || 'none'}`)).trim();
+    if (!prompt) throw Error('Prompt generation failed');
+    r.json({ image: await genImage(prompt), prompt });
+  } catch (e) { bad(r, e); }
+});
+
 app.listen(E.PORT || 3000, () => console.log('Nova AI is running'));

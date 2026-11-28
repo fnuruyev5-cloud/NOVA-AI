@@ -13,7 +13,7 @@
   <header>
     <button id="menu">☰</button>
     <img class="logo" alt=""><b>Nova AI</b>
-    <button id="gear">⚙</button>
+    <button id="lgb" title="Logo Studio">✦</button><button id="gear">⚙</button>
   </header>
   <section id="msgs"></section>
   <div id="st"></div>
@@ -27,6 +27,19 @@
 </main>
 <div id="vo" class="ov" hidden><div id="orb"></div><div id="vt"></div><button id="vx">✕</button></div>
 <div id="co" class="ov" hidden><video id="cv" autoplay playsinline muted></video><div id="ct"></div><div class="cb"><button id="cd">👁</button><button id="cm">🎤</button><button id="cx">✕</button></div></div>
+<div id="lg" hidden><div class="lgw">
+<div class="lgh"><b>✦ Logo Studio</b><button id="lgx">✕</button></div>
+<div class="lgg"><div class="lgf">
+<label>Brand / team / clan / company name</label><input id="ln" maxlength="60" autocomplete="off">
+<label>Describe the logo style</label><textarea id="ld" rows="3" maxlength="500" placeholder="e.g. fierce wolf head, sharp angles, futuristic"></textarea>
+<label>Category</label><div id="lc" class="chips"></div>
+<label>Colors (up to 3)</label><div id="lk" class="chips"></div>
+<label>Visual style</label><div id="ls" class="chips"></div>
+<button id="lgo">Generate logo</button></div>
+<div class="lgr"><div id="lbox"><span>Your logo will appear here</span></div><div id="lst" role="status"></div>
+<div class="lga"><button id="lre" disabled>↻ Regenerate</button><button id="ldl" disabled>⬇ Download</button><button id="lsv" disabled>♡ Save</button></div>
+<details><summary>Generated prompt</summary><pre id="lp"></pre></details>
+<b>Saved logos</b><div id="lgal"></div></div></div></div></div>
 <dialog id="dlg">
   <label id="l-theme"></label>
   <select id="s-theme"><option value="auto"></option><option value="light"></option><option value="dark"></option></select>
