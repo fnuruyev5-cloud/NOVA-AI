@@ -172,20 +172,44 @@ app.get('/video/:id', async (q, r) => {
   } catch (e) { bad(r, e); }
 });
 
-// ---- Logo Studio: description -> professional prompt -> real image API ----
+// ---- Logo Studio: premium prompt builder + dedicated logo image provider ----
 const CAT = {
-  'Esports Gaming': 'aggressive esports emblem, bold angular typography, dynamic shield or mascot silhouette, high contrast, sharp edges',
-  'Clan Logo': 'heraldic clan crest or badge, symmetrical emblem, strong iconic silhouette, shield, banner or weapon elements',
-  'Company Logo': 'refined corporate mark, balanced geometric symbol with a clean wordmark, trustworthy, modern, scalable',
-  'Minimalist Logo': 'minimalist mark, very few shapes, clever negative space, generous whitespace, limited palette',
-  'Mascot Logo': 'expressive mascot character as the hero of the logo, bold clean outlines, strong personality, sports-team style',
-  '3D Logo': 'premium 3D rendered logo, beveled depth, realistic lighting and reflections, glossy or metallic materials'
+  'Esports Gaming': 'professional esports team identity, aggressive mascot or iconic shield emblem, bold angular silhouette, competitive gaming brand language',
+  'Clan Logo': 'premium gaming clan insignia, memorable heraldic crest, powerful symmetrical symbol, custom initials integrated into the emblem',
+  'Company Logo': 'high-end corporate brand identity, distinctive geometric symbol and precise wordmark, timeless, balanced, scalable',
+  'Minimalist Logo': 'minimal luxury identity, intelligent negative space, simple iconic geometry, exceptionally clean vector-like construction',
+  'Mascot Logo': 'original expressive mascot character, powerful readable face and silhouette, polished sports-team illustration, confident personality',
+  '3D Logo': 'premium dimensional brand emblem, sculpted metallic materials, controlled bevels, realistic studio lighting, crisp readable silhouette'
 };
-const SYSLOGO = 'You are a senior brand identity designer and image-prompt engineer. Turn the brief into ONE detailed prompt for an image generation model that creates a professional logo. Output only the prompt, in English, under 170 words. Rules: a single centered logo on a clean plain background that suits the palette (dark for neon or esports styles, white for minimalist or corporate); vector-quality shapes, strong silhouette, balanced composition, readable at small sizes; no mockups, no extra objects, no watermark. The brand name must appear exactly once, spelled exactly as given, in a custom typeface that matches the style. Follow the category conventions, use the given colors precisely and respect the visual style and the user description.';
-async function llm(system, user) {
-  const m = [{ role: 'system', content: system }, { role: 'user', content: user }];
-  if (COMET) { try { return await J(CB + '/chat/completions', COMET, { model: E.COMET_MODEL || E.COMETAPI_MODEL || 'claude-haiku-5-5', messages: m }).then(txt); } catch (e) { if (!GROQ) throw e; } }
-  return J(GB + '/chat/completions', GROQ, { model: E.GROQ_MODEL || 'openai/gpt-oss-120b', messages: m }).then(txt);
+const STYLE_GUIDE = {
+  'Flat vector': 'crisp flat vector artwork, clean geometric shapes, precise edges, limited color palette',
+  'Gradient': 'premium controlled gradient transitions, subtle depth, clean polished graphic design',
+  'Neon glow': 'restrained electric neon rim lighting, luminous cyan and violet accents, deep dark contrast',
+  'Metallic chrome': 'brushed chrome and polished metal surfaces, tasteful reflections, premium dark studio finish',
+  '3D render': 'high-end 3D emblem render, realistic materials, refined bevels, cinematic studio lighting',
+  'Line art': 'precise custom linework, elegant contours, balanced negative space, minimal visual noise'
+};
+const LOGO_NEGATIVE = 'low resolution, blurry, pixelated, amateur clipart, generic stock icon, watermark, signature, mockup, business card, shirt, wall, storefront, extra objects, extra words, random letters, misspelled text, duplicate text, crowded composition, messy background, cropped emblem, deformed mascot, asymmetrical eyes, cheap plastic, oversaturated glow';
+function buildLogoPrompt({ name, desc, category, style, colors }) {
+  const palette = (Array.isArray(colors) ? colors : []).slice(0, 3).map(x => String(x).slice(0, 40)).join(', ') || 'designer-selected premium palette';
+  const categoryGuide = CAT[category] || CAT['Esports Gaming'];
+  const styleGuide = STYLE_GUIDE[style] || STYLE_GUIDE['Flat vector'];
+  const details = String(desc || '').trim().slice(0, 500);
+  const esports = category === 'Esports Gaming' || category === 'Clan Logo' || category === 'Mascot Logo';
+  return [
+    'Create one exceptionally polished, original, professional brand logo. This is the final logo artwork, NOT a presentation or mockup.',
+    `EXACT BRAND NAME: "${name}". If text is included, reproduce this spelling exactly, once only. Do not invent any additional lettering, slogan, numbers, or symbols that resemble text.`,
+    `CATEGORY AND ART DIRECTION: ${categoryGuide}.`,
+    `RENDERING STYLE: ${styleGuide}.`,
+    `COLOR PALETTE: ${palette}. Use these colors deliberately and consistently; do not introduce unrelated colors.`,
+    details ? `CREATIVE BRIEF: ${details}.` : '',
+    esports
+      ? 'Design a memorable esports-grade identity with a bold instantly recognizable silhouette, expertly drawn mascot or emblem, sharp intentional shapes, strong facial expression if a character is used, professional sports branding polish, and excellent readability as a small gaming avatar.'
+      : 'Design a distinctive brand mark with excellent visual hierarchy, balanced proportions, intelligent negative space, precise geometry, and timeless professional identity design.',
+    'COMPOSITION: single centered logo, complete and fully visible, optically balanced, generous clear space around it. Keep the symbol and brand name visually integrated. Use a clean solid background with strong contrast; no scene or environment.',
+    'QUALITY: art-director-level logo design, refined custom shapes, clean contours, crisp edges, sophisticated lighting only where appropriate, high detail without clutter, production-ready finish.',
+    'The result must look like a premium custom-designed logo made by a top branding studio, not AI clipart.'
+  ].filter(Boolean).join(' ');
 }
 const b64url = (buf, type) => `data:${type || 'image/png'};base64,${Buffer.from(buf).toString('base64')}`;
 const IMG = {
@@ -200,15 +224,29 @@ const IMG = {
     if (!g.ok) throw Error('Could not fetch the generated image');
     return b64url(await g.arrayBuffer(), g.headers.get('content-type'));
   },
-  async cloudflare(p) {
+  async cloudflare(p, opts = {}) {
     if (!E.CF_ACCOUNT_ID || !E.CF_API_TOKEN) throw Error('CF_ACCOUNT_ID / CF_API_TOKEN missing');
-    const x = await fetch(`https://api.cloudflare.com/client/v4/accounts/${E.CF_ACCOUNT_ID}/ai/run/${E.CF_IMAGE_MODEL || '@cf/black-forest-labs/flux-1-schnell'}`, {
-      method: 'POST', headers: { Authorization: 'Bearer ' + E.CF_API_TOKEN, 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: p.slice(0, 2000) })
+    const model = opts.model || E.CF_IMAGE_MODEL || '@cf/black-forest-labs/flux-1-schnell';
+    const isPhoenix = model === '@cf/leonardo/phoenix-1.0';
+    const body = {
+      prompt: p.slice(0, 3500),
+      width: 1024,
+      height: 1024,
+      guidance: isPhoenix ? 6 : 4,
+      num_steps: isPhoenix ? 35 : 4,
+      negative_prompt: LOGO_NEGATIVE
+    };
+    const x = await fetch(`https://api.cloudflare.com/client/v4/accounts/${E.CF_ACCOUNT_ID}/ai/run/${encodeURIComponent(model).replace('%40','@')}`, {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + E.CF_API_TOKEN, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(120000)
     });
     const type = x.headers.get('content-type') || '';
-    if (type.startsWith('image/')) return b64url(await x.arrayBuffer(), type);
-    const j = await x.json(), b = j.result?.image || j.image;
-    if (!x.ok || !b) throw Error(j.errors?.[0]?.message || 'Cloudflare ' + x.status);
+    if (x.ok && type.startsWith('image/')) return b64url(await x.arrayBuffer(), type);
+    const j = await x.json().catch(() => ({}));
+    const b = j.result?.image || j.image;
+    if (!x.ok || !b) throw Error(j.errors?.[0]?.message || j.messages?.[0]?.message || 'Cloudflare image generation failed (' + x.status + ')');
     return `data:image/jpeg;base64,${b}`;
   },
   async huggingface(p) {
@@ -224,7 +262,7 @@ const IMG = {
     const u = `https://image.pollinations.ai/prompt/${encodeURIComponent(p.slice(0, 1000))}?width=1024&height=1024&model=${E.POLLINATIONS_MODEL || 'flux'}&nologo=true&private=true&seed=${Math.floor(Math.random() * 1e6)}`;
     for (let t = 0; t < 2; t++) {
       const x = await fetch(u, { signal: AbortSignal.timeout(90000) });
-      if (x.status === 429 && !t) { await new Promise(r => setTimeout(r, 16000)); continue; } // anonymous tier is rate limited
+      if (x.status === 429 && !t) { await new Promise(r => setTimeout(r, 16000)); continue; }
       const type = x.headers.get('content-type') || '';
       if (!x.ok || !type.startsWith('image/')) throw Error('Pollinations ' + x.status);
       return b64url(await x.arrayBuffer(), type);
@@ -241,17 +279,26 @@ async function genImage(prompt) {
   }
   throw Error(errs.join(' | '));
 }
+async function genLogoImage(prompt) {
+  // Logo Studio defaults to Leonardo Phoenix. Pollinations is never silently selected.
+  const provider = String(E.LOGO_IMAGE_PROVIDER || 'cloudflare').toLowerCase();
+  if (provider === 'cloudflare') {
+    return IMG.cloudflare(prompt, { model: E.CF_LOGO_MODEL || '@cf/leonardo/phoenix-1.0' });
+  }
+  if (!IMG[provider]) throw Error('Unknown LOGO_IMAGE_PROVIDER: ' + provider);
+  return IMG[provider](prompt);
+}
 app.post('/logo', async (q, r) => {
   try {
-    const { name, desc, category, style, colors, prompt: keep } = q.body;
-    const n = String(name || '').trim().slice(0, 60);
-    if (!n) throw Error('Name is required');
-    if (!CAT[category]) throw Error('Unknown category');
-    let prompt = typeof keep === 'string' && keep.length > 20 ? keep.slice(0, 2000) : '';
-    if (!prompt) prompt = (await llm(SYSLOGO, `Brand name: "${n}"\nCategory: ${category} (${CAT[category]})\nVisual style: ${String(style || '').slice(0, 40)}\nColors: ${(Array.isArray(colors) ? colors : []).slice(0, 4).map(c => String(c).slice(0, 30)).join(', ') || 'designer choice'}\nUser description: ${String(desc || '').slice(0, 500) || 'none'}`)).trim();
-    if (!prompt) throw Error('Prompt generation failed');
-    r.json({ image: await genImage(prompt), prompt });
+    const { name, desc, category, style, colors, prompt: keep } = q.body || {};
+    const n = String(name || '').trim().replace(/\s+/g, ' ').slice(0, 60);
+    if (!n) throw Error('Loqo üçün ad daxil edin');
+    if (!CAT[category]) throw Error('Loqo kateqoriyası düzgün deyil');
+    const prompt = typeof keep === 'string' && keep.length > 40
+      ? keep.slice(0, 3500)
+      : buildLogoPrompt({ name: n, desc, category, style, colors });
+    const image = await genLogoImage(prompt);
+    r.json({ image, prompt, provider: E.LOGO_IMAGE_PROVIDER || 'cloudflare', model: E.CF_LOGO_MODEL || '@cf/leonardo/phoenix-1.0' });
   } catch (e) { bad(r, e); }
 });
-
 app.listen(E.PORT || 3000, () => console.log('Nova AI is running'));
